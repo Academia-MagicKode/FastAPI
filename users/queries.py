@@ -1,17 +1,18 @@
 from passlib.context import CryptContext
 from typing import Optional
 from sqlalchemy.orm import Session
+from starlette.status import HTTP_400_BAD_REQUEST
 from config.database import get_db
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import HTTPException, status, Depends
 from datetime import timedelta , datetime
 from jose import JWTError, jwt
-from dotenv import load_dotenv
 import os
+import re
 from .schema import TokenData
 from .models import User
 
-load_dotenv()
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 SECRET_KEY = os.environ["SECRET_KEY"]
@@ -28,13 +29,17 @@ def get_password_hash(password):
 
 #--------USER MODEL QUERIES-----------------------------------------------------------
 def create(request, db:Session=Depends(get_db)):
-    new_user= User(username=request.username, email=request.email,
-                 password=get_password_hash(request.password))
-    db.add(new_user)
-    db.commit()
+    check_valid_email(request.email)
+    try:
+        new_user= User(username=request.username, email=request.email,
+                    password=get_password_hash(request.password))
+        db.add(new_user)
+        db.commit()
+    except Exception:
+        raise HTTPException(status_code= status.HTTP_400_BAD_REQUEST,
+                detail= "username or email already exists")
     db.refresh(new_user)
     return new_user
-
 
 def detail(id, db:Session=Depends(get_db)):
     user= db.query(User).filter(User.id== id).first()
@@ -43,7 +48,13 @@ def detail(id, db:Session=Depends(get_db)):
             detail=f"User not found id:{id}")
     return user
 
-
+def check_valid_email(email:str):
+    match= re.match('^[_a-z0-9-]+(\.[_a-z0-9-]+)*@[a-z0-9-]+(\.[a-z0-9-]+)*(\.[a-z]{2,4})$',
+                    email)
+    if match == None:
+        raise HTTPException(status_code= status.HTTP_400_BAD_REQUEST,
+                detail="Invalid Email Address")
+    
 #-------AUTHENTICATION------------------------------------------------------------
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
